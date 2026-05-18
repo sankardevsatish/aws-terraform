@@ -1,6 +1,6 @@
 terraform {
   cloud {
-    organization = "vinuinspain"   # your HCP Terraform org name
+    organization = "Demohealth"   # your HCP Terraform org name
 
     workspaces {
       name = "aws-terraform"           # your workspace name in HCP
