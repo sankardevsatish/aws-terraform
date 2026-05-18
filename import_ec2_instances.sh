@@ -1,154 +1,154 @@
-#!/bin/bash
-# -----------------------------------------------------------
-# import_ec2_instances.sh
-#
-# Discovers manually created EC2 instances via AWS CLI and
-# auto-generates Terraform import + resource blocks.
-#
-# Usage:
-#   chmod +x import_ec2_instances.sh
-#   ./import_ec2_instances.sh                          # all running instances
-#   ./import_ec2_instances.sh --region eu-west-2       # specific region
-#   ./import_ec2_instances.sh --state stopped          # by state
-#   ./import_ec2_instances.sh --tag ManagedBy=manual   # filter by tag
-# -----------------------------------------------------------
+# #!/bin/bash
+# # -----------------------------------------------------------
+# # import_ec2_instances.sh
+# #
+# # Discovers manually created EC2 instances via AWS CLI and
+# # auto-generates Terraform import + resource blocks.
+# #
+# # Usage:
+# #   chmod +x import_ec2_instances.sh
+# #   ./import_ec2_instances.sh                          # all running instances
+# #   ./import_ec2_instances.sh --region eu-west-2       # specific region
+# #   ./import_ec2_instances.sh --state stopped          # by state
+# #   ./import_ec2_instances.sh --tag ManagedBy=manual   # filter by tag
+# # -----------------------------------------------------------
 
-set -e
+# set -e
 
-REGION="${AWS_DEFAULT_REGION:-eu-west-2}"
-TAG_FILTER=""
-STATE_FILTER="running"
-OUTPUT_FILE="imported_ec2.tf"
+# REGION="${AWS_DEFAULT_REGION:-eu-west-2}"
+# TAG_FILTER=""
+# STATE_FILTER="running"
+# OUTPUT_FILE="imported_ec2.tf"
 
-# --- Parse arguments ---
-while [[ "$#" -gt 0 ]]; do
-  case $1 in
-    --region) REGION="$2"; shift ;;
-    --tag)    TAG_FILTER="$2"; shift ;;
-    --state)  STATE_FILTER="$2"; shift ;;
-    *) echo "Unknown param: $1"; exit 1 ;;
-  esac
-  shift
-done
+# # --- Parse arguments ---
+# while [[ "$#" -gt 0 ]]; do
+#   case $1 in
+#     --region) REGION="$2"; shift ;;
+#     --tag)    TAG_FILTER="$2"; shift ;;
+#     --state)  STATE_FILTER="$2"; shift ;;
+#     *) echo "Unknown param: $1"; exit 1 ;;
+#   esac
+#   shift
+# done
 
-echo "=================================================="
-echo " Terraform EC2 Instance Import Generator"
-echo " Region : $REGION"
-echo " State  : $STATE_FILTER"
-echo " Tag    : ${TAG_FILTER:-<all instances>}"
-echo "=================================================="
-echo ""
+# echo "=================================================="
+# echo " Terraform EC2 Instance Import Generator"
+# echo " Region : $REGION"
+# echo " State  : $STATE_FILTER"
+# echo " Tag    : ${TAG_FILTER:-<all instances>}"
+# echo "=================================================="
+# echo ""
 
-# --- Step 1: Build tag filter for AWS CLI ---
-TAG_ARGS=""
-if [[ -n "$TAG_FILTER" ]]; then
-  TAG_KEY="${TAG_FILTER%%=*}"
-  TAG_VAL="${TAG_FILTER##*=}"
-  TAG_ARGS="Name=tag:${TAG_KEY},Values=${TAG_VAL}"
-fi
+# # --- Step 1: Build tag filter for AWS CLI ---
+# TAG_ARGS=""
+# if [[ -n "$TAG_FILTER" ]]; then
+#   TAG_KEY="${TAG_FILTER%%=*}"
+#   TAG_VAL="${TAG_FILTER##*=}"
+#   TAG_ARGS="Name=tag:${TAG_KEY},Values=${TAG_VAL}"
+# fi
 
-# --- Step 2: Query EC2 instances ---
-echo ">> Fetching EC2 instances in region: $REGION ..."
+# # --- Step 2: Query EC2 instances ---
+# echo ">> Fetching EC2 instances in region: $REGION ..."
 
-QUERY='Reservations[*].Instances[*].{ID:InstanceId,Name:Tags[?Key==`Name`]|[0].Value,State:State.Name,Type:InstanceType}'
+# QUERY='Reservations[*].Instances[*].{ID:InstanceId,Name:Tags[?Key==`Name`]|[0].Value,State:State.Name,Type:InstanceType}'
 
-if [[ -n "$TAG_ARGS" ]]; then
-  INSTANCES=$(aws ec2 describe-instances \
-    --region "$REGION" \
-    --filters "Name=instance-state-name,Values=${STATE_FILTER}" "$TAG_ARGS" \
-    --query "$QUERY" \
-    --output json)
-else
-  INSTANCES=$(aws ec2 describe-instances \
-    --region "$REGION" \
-    --filters "Name=instance-state-name,Values=${STATE_FILTER}" \
-    --query "$QUERY" \
-    --output json)
-fi
+# if [[ -n "$TAG_ARGS" ]]; then
+#   INSTANCES=$(aws ec2 describe-instances \
+#     --region "$REGION" \
+#     --filters "Name=instance-state-name,Values=${STATE_FILTER}" "$TAG_ARGS" \
+#     --query "$QUERY" \
+#     --output json)
+# else
+#   INSTANCES=$(aws ec2 describe-instances \
+#     --region "$REGION" \
+#     --filters "Name=instance-state-name,Values=${STATE_FILTER}" \
+#     --query "$QUERY" \
+#     --output json)
+# fi
 
-# Flatten nested array
-INSTANCES=$(echo "$INSTANCES" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-flat = [item for sublist in data for item in sublist]
-print(json.dumps(flat))
-")
+# # Flatten nested array
+# INSTANCES=$(echo "$INSTANCES" | python3 -c "
+# import json, sys
+# data = json.load(sys.stdin)
+# flat = [item for sublist in data for item in sublist]
+# print(json.dumps(flat))
+# ")
 
-COUNT=$(echo "$INSTANCES" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+# COUNT=$(echo "$INSTANCES" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
 
-echo ""
-echo ">> Found $COUNT instance(s) in '$REGION' with state '$STATE_FILTER':"
-echo ""
+# echo ""
+# echo ">> Found $COUNT instance(s) in '$REGION' with state '$STATE_FILTER':"
+# echo ""
 
-if [[ "$COUNT" -eq 0 ]]; then
-  echo "   No matching EC2 instances found."
-  exit 0
-fi
+# if [[ "$COUNT" -eq 0 ]]; then
+#   echo "   No matching EC2 instances found."
+#   exit 0
+# fi
 
-# --- Step 3: Print discovered instances ---
-echo "$INSTANCES" | python3 -c "
-import json, sys
-instances = json.load(sys.stdin)
-for i in instances:
-    name = i.get('Name') or 'unnamed'
-    print(f\"   - {i['ID']}  [{i['Type']}]  name={name}  state={i['State']}\")
-"
+# # --- Step 3: Print discovered instances ---
+# echo "$INSTANCES" | python3 -c "
+# import json, sys
+# instances = json.load(sys.stdin)
+# for i in instances:
+#     name = i.get('Name') or 'unnamed'
+#     print(f\"   - {i['ID']}  [{i['Type']}]  name={name}  state={i['State']}\")
+# "
 
-# --- Step 4: Generate Terraform import + resource blocks ---
-echo ""
-echo ">> Generating Terraform config -> $OUTPUT_FILE"
+# # --- Step 4: Generate Terraform import + resource blocks ---
+# echo ""
+# echo ">> Generating Terraform config -> $OUTPUT_FILE"
 
-cat > "$OUTPUT_FILE" <<EOF
-# -----------------------------------------------------------
-# Auto-generated by import_ec2_instances.sh
-# Region : $REGION
-# State  : $STATE_FILTER
-# Date   : $(date +"%Y-%m-%d %H:%M:%S")
-# Count  : $COUNT
-# -----------------------------------------------------------
+# cat > "$OUTPUT_FILE" <<EOF
+# # -----------------------------------------------------------
+# # Auto-generated by import_ec2_instances.sh
+# # Region : $REGION
+# # State  : $STATE_FILTER
+# # Date   : $(date +"%Y-%m-%d %H:%M:%S")
+# # Count  : $COUNT
+# # -----------------------------------------------------------
 
-EOF
+# EOF
 
-echo "$INSTANCES" | python3 -c "
-import json, sys
-instances = json.load(sys.stdin)
-for i in instances:
-    iid   = i['ID']
-    itype = i['Type']
-    name  = (i.get('Name') or iid).replace('-','_').replace(' ','_')
-    label = 'ec2_' + name.lower()
+# echo "$INSTANCES" | python3 -c "
+# import json, sys
+# instances = json.load(sys.stdin)
+# for i in instances:
+#     iid   = i['ID']
+#     itype = i['Type']
+#     name  = (i.get('Name') or iid).replace('-','_').replace(' ','_')
+#     label = 'ec2_' + name.lower()
 
-    block = f'''import {{
-  to = aws_instance.{label}
-  id = \"{iid}\"
-}}
+#     block = f'''import {{
+#   to = aws_instance.{label}
+#   id = \"{iid}\"
+# }}
 
-resource \"aws_instance\" \"{label}\" {{
-  # instance_type = \"{itype}\"
-  # ami           = \"<fill-in-ami-id>\"
-  # Add other config as needed after import
+# resource \"aws_instance\" \"{label}\" {{
+#   # instance_type = \"{itype}\"
+#   # ami           = \"<fill-in-ami-id>\"
+#   # Add other config as needed after import
 
-  tags = {{
-    ManagedBy = \"terraform\"
-  }}
-}}
+#   tags = {{
+#     ManagedBy = \"terraform\"
+#   }}
+# }}
 
-'''
-    print(block)
-" >> "$OUTPUT_FILE"
+# '''
+#     print(block)
+# " >> "$OUTPUT_FILE"
 
-echo ""
-echo "   + $COUNT import block(s) written to $OUTPUT_FILE"
-echo ""
-echo "=================================================="
-echo " Done! Next steps:"
-echo ""
-echo "   1. Review the generated file:"
-echo "      cat $OUTPUT_FILE"
-echo ""
-echo "   2. Preview the import:"
-echo "      terraform plan"
-echo ""
-echo "   3. Apply the import:"
-echo "      terraform apply"
-echo "=================================================="
+# echo ""
+# echo "   + $COUNT import block(s) written to $OUTPUT_FILE"
+# echo ""
+# echo "=================================================="
+# echo " Done! Next steps:"
+# echo ""
+# echo "   1. Review the generated file:"
+# echo "      cat $OUTPUT_FILE"
+# echo ""
+# echo "   2. Preview the import:"
+# echo "      terraform plan"
+# echo ""
+# echo "   3. Apply the import:"
+# echo "      terraform apply"
+# echo "=================================================="
